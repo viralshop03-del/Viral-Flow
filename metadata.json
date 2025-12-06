@@ -1,0 +1,5 @@
+{
+  "name": "Viral Flow",
+  "description": "An expert copywriting assistant that generates FYP-ready video scripts, analyzes viral potential, and creates cinematic concept thumbnails using Gemini 3 Pro.",
+  "requestFramePermissions": []
+}
