@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { ScriptRequest, ScriptResponse } from "../types";
 
@@ -56,8 +55,9 @@ const scriptSchema = {
   required: ["title", "body", "imagePrompt"],
 };
 
-export const generateScript = async (request: ScriptRequest, apiKey: string): Promise<ScriptResponse> => {
-  if (!apiKey) throw new Error("API Key is missing");
+export const generateScript = async (request: ScriptRequest): Promise<ScriptResponse> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API Key is missing. Please select a key.");
   const ai = new GoogleGenAI({ apiKey });
 
   const bubbleInstruction = request.includeBubbleText
@@ -156,22 +156,46 @@ export const generateScript = async (request: ScriptRequest, apiKey: string): Pr
   }
 };
 
-export const generateThumbnail = async (prompt: string, aspectRatio: string = "9:16", apiKey: string): Promise<string> => {
-  if (!apiKey) throw new Error("API Key is missing");
+export const generateThumbnail = async (
+  prompt: string, 
+  aspectRatio: string = "9:16", 
+  mode: 'cover' | 'scene' = 'scene' // New parameter to distinguish usage
+): Promise<string> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) throw new Error("API Key is missing. Please select a key.");
   const ai = new GoogleGenAI({ apiKey });
 
   try {
-    // STRICT VISUAL LOCK: Force single image composition
+    let compositionRules = "";
+
+    if (mode === 'cover') {
+      // RULES FOR MAIN COVER (With Neon Title)
+      compositionRules = `
+      STRICT VISUAL COMPOSITION RULES (COVER):
+      1. SINGLE FULL-FRAME IMAGE ONLY. NO SPLIT SCREENS. NO COLLAGES.
+      2. ONE CAMERA LENS ONLY.
+      3. TEXT PLACEMENT: DEAD CENTER. 20% Margin from edges.
+      4. TEXT STYLE: LARGE BOLD NEON WHITE SANS-SERIF.
+      5. Action: Subject must be expressive.
+      `;
+    } else {
+      // RULES FOR SCENES (Clean or Bubble only)
+      compositionRules = `
+      STRICT VISUAL COMPOSITION RULES (SCENE):
+      1. SINGLE FULL-FRAME IMAGE ONLY. NO SPLIT SCREENS. NO COLLAGES.
+      2. ONE CAMERA LENS ONLY. One unified scene.
+      3. ACTION: Subject must be expressive and dynamic. NO static poses.
+      4. DO NOT add any title text or captions unless explicitly asked in the prompt.
+      5. FOCUS: Cinematic lighting and character emotion.
+      `;
+    }
+
     const stablePrompt = `
     ${prompt} 
     
-    STRICT VISUAL COMPOSITION RULES:
-    1. SINGLE FULL-FRAME IMAGE ONLY. NO SPLIT SCREENS. NO COLLAGES.
-    2. ONE CAMERA LENS ONLY. One unified scene.
-    3. ACTION: Subject must be expressive and dynamic. NO static poses.
-    4. ASPECT RATIO: The output must be optimized for ${aspectRatio}.
-    5. TEXT PLACEMENT: DEAD CENTER. 20% Margin from edges.
-    6. TEXT STYLE: LARGE BOLD NEON WHITE SANS-SERIF.
+    ${compositionRules}
+    
+    ASPECT RATIO: The output must be optimized for ${aspectRatio}.
     `;
 
     const response = await ai.models.generateContent({

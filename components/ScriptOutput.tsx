@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { ScriptResponse, ScriptScene } from '../types';
 import { generateThumbnail } from '../services/geminiService';
@@ -6,10 +5,9 @@ import { Download, Image as ImageIcon, Copy, Check, Loader2, Layers, MessageSqua
 
 interface ScriptOutputProps {
   data: ScriptResponse;
-  apiKey: string;
 }
 
-export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data, apiKey }) => {
+export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data }) => {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [loadingCover, setLoadingCover] = useState(false);
   const [sceneNarrationCopied, setSceneNarrationCopied] = useState<Record<number, boolean>>({});
@@ -34,10 +32,11 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data, apiKey }) => {
   }, [data, hasBubbles]);
 
   const handleGenerateCover = async () => {
-    if (!data.imagePrompt || !apiKey) return;
+    if (!data.imagePrompt) return;
     setLoadingCover(true);
     try {
-      const url = await generateThumbnail(data.imagePrompt, data.aspectRatio, apiKey);
+      // Pass 'cover' mode to ensure Neon Text is applied
+      const url = await generateThumbnail(data.imagePrompt, data.aspectRatio, 'cover');
       setCoverUrl(url);
     } catch (e) {
       alert("Failed to generate cover image. Please check API Key quota.");
@@ -47,7 +46,6 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data, apiKey }) => {
   };
 
   const handleGenerateSceneImage = async (index: number, scene: ScriptScene) => {
-    if (!apiKey) return;
     setLoadingScenes(prev => ({...prev, [index]: true}));
     try {
       let prompt = scene.imagePrompt;
@@ -71,7 +69,8 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data, apiKey }) => {
         `;
       }
 
-      const url = await generateThumbnail(prompt, data.aspectRatio, apiKey);
+      // Pass 'scene' mode to ensure NO Neon Title Text is applied (fixing the double text issue)
+      const url = await generateThumbnail(prompt, data.aspectRatio, 'scene');
       setSceneImages(prev => ({...prev, [index]: url}));
     } catch (e) {
       console.error(e);
@@ -150,12 +149,13 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data, apiKey }) => {
             {/* Scenes List */}
             <div className="space-y-8">
                 {data.body.map((scene, idx) => (
+                    // Changed layout to flex-col (Vertical) for bigger images
                     <div key={idx} className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden hover:border-zinc-700 transition-colors shadow-md">
-                        <div className="flex flex-col md:flex-row">
-                            {/* Image Section - Dynamic Ratio Container */}
-                            <div className={`md:w-1/3 bg-black relative border-b md:border-b-0 md:border-r border-zinc-800 flex flex-col`}>
-                                <div className={`w-full relative ${ratioClass} bg-black/50 self-start`}> 
-                                    {/* Note: self-start ensures it doesn't stretch if container is taller */}
+                        <div className="flex flex-col w-full">
+                            
+                            {/* Image Section - NOW FULL WIDTH AT TOP */}
+                            <div className={`w-full bg-black relative border-b border-zinc-800 flex flex-col`}>
+                                <div className={`w-full relative ${ratioClass} bg-black/50 mx-auto`}> 
                                     {sceneImages[idx] ? (
                                         <div className="relative w-full h-full group">
                                             <img 
@@ -173,64 +173,65 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data, apiKey }) => {
                                         <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center absolute inset-0">
                                             <div className="text-zinc-500 text-xs font-mono mb-4 absolute top-4 left-4">Scene {idx + 1}</div>
                                             
+                                            {/* Preview of Bubble Text (Only shown before generation) */}
                                             {useBubbles && scene.bubbleText && (
-                                                <div className="mb-4 px-3 py-2 bg-yellow-400/10 border border-yellow-400/30 rounded-lg max-w-[80%]">
-                                                    <p className="text-[10px] text-yellow-500 uppercase font-bold mb-1">Bubble Text</p>
-                                                    <p className="text-xs text-yellow-200 font-bold">"{scene.bubbleText}"</p>
+                                                <div className="mb-4 px-4 py-2 bg-yellow-400/10 border border-yellow-400/30 rounded-lg max-w-[80%]">
+                                                    <p className="text-[10px] text-yellow-500 uppercase font-bold mb-1">Target Bubble</p>
+                                                    <p className="text-sm text-yellow-200 font-bold">"{scene.bubbleText}"</p>
                                                 </div>
                                             )}
 
                                             <button 
                                                 onClick={() => handleGenerateSceneImage(idx, scene)}
                                                 disabled={loadingScenes[idx]}
-                                                className={`px-4 py-2 border rounded-lg text-xs font-medium text-white transition-all flex items-center gap-2 group ${
+                                                className={`px-6 py-3 border rounded-xl text-sm font-bold text-white transition-all flex items-center gap-2 group transform hover:scale-105 ${
                                                     useBubbles && scene.bubbleText
                                                     ? 'bg-yellow-400/10 hover:bg-yellow-400/20 border-yellow-400/30' 
                                                     : 'bg-zinc-800 hover:bg-zinc-700 border-zinc-700'
                                                 }`}
                                             >
                                                 {loadingScenes[idx] ? (
-                                                    <Loader2 size={14} className="animate-spin" />
+                                                    <Loader2 size={18} className="animate-spin" />
                                                 ) : (
-                                                    <ImageIcon size={14} className={useBubbles && scene.bubbleText ? "text-yellow-400" : "text-purple-400"} />
+                                                    <ImageIcon size={18} className={useBubbles && scene.bubbleText ? "text-yellow-400" : "text-purple-400"} />
                                                 )}
-                                                {loadingScenes[idx] ? 'Generating...' : 'Generate Frame'}
+                                                {loadingScenes[idx] ? 'Visualizing...' : 'Generate Visual'}
                                             </button>
                                         </div>
                                     )}
-                                    <div className="absolute top-2 left-2 bg-black/50 backdrop-blur-md px-2 py-1 rounded text-[10px] font-mono text-white border border-white/10 z-10">
+                                    <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-md px-2 py-1 rounded text-xs font-mono text-white border border-white/10 z-10 shadow-lg">
                                         {scene.timestamp}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Content Section */}
-                            <div className="md:w-2/3 flex flex-col">
-                                <div className="p-5 space-y-4 flex-grow">
+                            {/* Content Section - NOW BELOW THE IMAGE */}
+                            <div className="w-full flex flex-col bg-zinc-900">
+                                <div className="p-6 space-y-4">
                                     
                                     {/* Script Text */}
-                                    <div className="bg-zinc-950/50 p-4 rounded-xl border border-zinc-800/50">
-                                        <div className="flex justify-between items-center mb-2">
+                                    <div className="bg-zinc-950 p-5 rounded-xl border border-zinc-800">
+                                        <div className="flex justify-between items-center mb-3">
                                             <div className="flex items-center gap-2">
-                                                <Mic size={14} className="text-zinc-400" />
+                                                <Mic size={16} className="text-zinc-400" />
                                                 <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Script Segment</span>
                                             </div>
                                             <button 
                                                 onClick={() => copySceneText(idx, scene.originalText)}
-                                                className="text-[10px] flex items-center gap-1 text-zinc-500 hover:text-white transition-colors bg-zinc-800 px-2 py-1 rounded"
+                                                className="text-[10px] flex items-center gap-1 text-zinc-500 hover:text-white transition-colors bg-zinc-800 px-3 py-1.5 rounded-md hover:bg-zinc-700"
                                             >
-                                                {sceneNarrationCopied[idx] ? <Check size={10} /> : <Copy size={10} />}
+                                                {sceneNarrationCopied[idx] ? <Check size={12} /> : <Copy size={12} />} Copy Text
                                             </button>
                                         </div>
-                                        <p className="text-sm text-white font-medium font-mono leading-relaxed whitespace-pre-wrap">
+                                        <p className="text-base text-white font-medium font-sans leading-relaxed whitespace-pre-wrap">
                                             "{scene.originalText}"
                                         </p>
                                     </div>
 
                                     {/* Visual Description */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1">
-                                            <Layers size={14} className="text-blue-400"/>
+                                    <div className="pl-2">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <Layers size={16} className="text-blue-500"/>
                                             <span className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Visual Direction</span>
                                         </div>
                                         <p className="text-sm text-zinc-400 leading-relaxed pl-4 border-l-2 border-zinc-800">{scene.visual}</p>

@@ -8,9 +8,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ScriptResponse | null>(null);
   
-  // API Key State
-  const [apiKey, setApiKey] = useState('');
-  const [showKeyModal, setShowKeyModal] = useState(false);
+  // API Key Selection State
+  const [hasKey, setHasKey] = useState(false);
   
   // Form State
   const [scriptContent, setScriptContent] = useState('');
@@ -26,15 +25,9 @@ function App() {
   // Available Ratios
   const ratios = ["9:16", "16:9", "1:1", "4:3", "3:4"];
 
-  // 1. Load Data & API Key on Startup
+  // 1. Check for selected API Key and Load Data
   useEffect(() => {
-    // API KEY CHECK
-    const storedKey = localStorage.getItem('gemini_api_key');
-    if (storedKey) {
-        setApiKey(storedKey);
-    } else {
-        setShowKeyModal(true);
-    }
+    checkApiKey();
 
     // Load Current Workspace
     try {
@@ -65,6 +58,19 @@ function App() {
     }
   }, []);
 
+  const checkApiKey = async () => {
+    if ((window as any).aistudio && await (window as any).aistudio.hasSelectedApiKey()) {
+      setHasKey(true);
+    }
+  };
+
+  const handleSelectKey = async () => {
+    if ((window as any).aistudio) {
+        await (window as any).aistudio.openSelectKey();
+        setHasKey(true);
+    }
+  };
+
   // 2. Auto-Save Current Workspace
   useEffect(() => {
     try {
@@ -83,12 +89,6 @@ function App() {
       console.error("History save error:", e);
     }
   }, [savedProjects]);
-
-  const saveApiKey = (key: string) => {
-    setApiKey(key);
-    localStorage.setItem('gemini_api_key', key);
-    setShowKeyModal(false);
-  };
 
   const handleClearText = () => {
     setScriptContent('');
@@ -162,9 +162,9 @@ function App() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scriptContent) return;
-    if (!apiKey) {
-        setShowKeyModal(true);
-        return;
+
+    if (!hasKey) {
+        await handleSelectKey();
     }
 
     setLoading(true);
@@ -177,15 +177,40 @@ function App() {
         includeBubbleText: includeBubble,
         characterImage,
         aspectRatio
-      }, apiKey); 
+      }); 
       setResult(data);
     } catch (error: any) {
       console.error("Generation Error:", error);
-      alert(error.message || "Failed to generate storyboard. Check API Key quota.");
+      if (error.message && error.message.includes("Requested entity was not found")) {
+          setHasKey(false);
+          await handleSelectKey();
+      } else {
+          alert(error.message || "Failed to generate storyboard. Check API Key quota.");
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  if (!hasKey) {
+    return (
+        <div className="min-h-screen bg-[#0f0f11] flex flex-col items-center justify-center p-6 text-center">
+            <div className="w-16 h-16 bg-purple-600/20 rounded-full flex items-center justify-center mb-6">
+                <Clapperboard className="text-purple-500" size={32} />
+            </div>
+            <h1 className="text-3xl font-bold text-white mb-4">Welcome to Viral Flow</h1>
+            <p className="text-zinc-400 mb-8 max-w-md">To generate cinematic storyboards with Gemini, please select a paid Google Cloud Project API Key.</p>
+            <button onClick={handleSelectKey} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-8 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-purple-900/30">
+                <Key size={20} /> Select API Key
+            </button>
+            <div className="mt-8 text-zinc-600 text-xs">
+                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="hover:text-purple-400 underline">
+                    Billing Documentation
+                </a>
+            </div>
+        </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0f0f11] text-zinc-100 selection:bg-purple-500/30 selection:text-purple-200 relative overflow-x-hidden">
@@ -195,40 +220,6 @@ function App() {
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-purple-900/20 rounded-full blur-[120px]" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-900/10 rounded-full blur-[120px]" />
       </div>
-
-      {/* API Key Modal */}
-      {showKeyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-            <div className="bg-zinc-900 border border-zinc-700 p-6 rounded-2xl w-full max-w-md shadow-2xl">
-                <div className="flex flex-col items-center text-center mb-6">
-                    <div className="w-12 h-12 bg-purple-600/20 rounded-full flex items-center justify-center mb-4">
-                        <Key className="text-purple-500" size={24} />
-                    </div>
-                    <h2 className="text-xl font-bold text-white mb-2">Enter Gemini API Key</h2>
-                    <p className="text-sm text-zinc-400">
-                        To use this app publicly, you must provide your own API Key. It is stored locally in your browser and never sent to our servers.
-                    </p>
-                </div>
-                <form onSubmit={(e) => { e.preventDefault(); const val = (e.target as any).keyInput.value; if(val) saveApiKey(val); }}>
-                    <input 
-                        name="keyInput"
-                        type="password" 
-                        placeholder="AIzaSy..." 
-                        className="w-full bg-black border border-zinc-700 rounded-xl px-4 py-3 text-white mb-4 focus:border-purple-500 focus:outline-none"
-                        autoFocus
-                    />
-                    <button type="submit" className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-zinc-200 transition-colors">
-                        Save Key & Continue
-                    </button>
-                </form>
-                <div className="mt-4 text-center">
-                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-xs text-purple-400 hover:text-purple-300 underline">
-                        Get a free Gemini API Key here
-                    </a>
-                </div>
-            </div>
-        </div>
-      )}
 
       <nav className="relative z-10 border-b border-zinc-800 bg-[#0f0f11]/80 backdrop-blur-md sticky top-0">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -241,7 +232,7 @@ function App() {
             </span>
           </div>
           <div className="flex gap-2 md:gap-4 items-center">
-             <button onClick={() => setShowKeyModal(true)} className="p-2 text-zinc-400 hover:text-white transition-colors" title="API Key Settings">
+             <button onClick={handleSelectKey} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Change API Key">
                 <Settings size={20} />
              </button>
              {(result || scriptContent.length > 0) && (
@@ -454,7 +445,7 @@ function App() {
 
           {result && (
             <div className="lg:col-span-8">
-                <ScriptOutput data={result} apiKey={apiKey} />
+                <ScriptOutput data={result} />
             </div>
           )}
 
