@@ -5,9 +5,10 @@ import { Download, Image as ImageIcon, Copy, Check, Loader2, Layers, MessageSqua
 
 interface ScriptOutputProps {
   data: ScriptResponse;
+  apiKey: string;
 }
 
-export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data }) => {
+export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data, apiKey }) => {
   const [coverUrl, setCoverUrl] = useState<string | null>(null);
   const [loadingCover, setLoadingCover] = useState(false);
   const [sceneNarrationCopied, setSceneNarrationCopied] = useState<Record<number, boolean>>({});
@@ -35,8 +36,8 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data }) => {
     if (!data.imagePrompt) return;
     setLoadingCover(true);
     try {
-      // Pass 'cover' mode to ensure Neon Text is applied
-      const url = await generateThumbnail(data.imagePrompt, data.aspectRatio, 'cover');
+      // Pass 'cover' mode and apiKey
+      const url = await generateThumbnail(data.imagePrompt, data.aspectRatio, 'cover', apiKey);
       setCoverUrl(url);
     } catch (e) {
       alert("Failed to generate cover image. Please check API Key quota.");
@@ -69,8 +70,8 @@ export const ScriptOutput: React.FC<ScriptOutputProps> = ({ data }) => {
         `;
       }
 
-      // Pass 'scene' mode to ensure NO Neon Title Text is applied (fixing the double text issue)
-      const url = await generateThumbnail(prompt, data.aspectRatio, 'scene');
+      // Pass 'scene' mode and apiKey
+      const url = await generateThumbnail(prompt, data.aspectRatio, 'scene', apiKey);
       setSceneImages(prev => ({...prev, [index]: url}));
     } catch (e) {
       console.error(e);

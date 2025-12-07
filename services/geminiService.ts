@@ -55,8 +55,10 @@ const scriptSchema = {
   required: ["title", "body", "imagePrompt"],
 };
 
-export const generateScript = async (request: ScriptRequest): Promise<ScriptResponse> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+export const generateScript = async (request: ScriptRequest, apiKey: string): Promise<ScriptResponse> => {
+  if (!apiKey) throw new Error("API Key is missing. Please enter your Gemini API Key.");
+  
+  const ai = new GoogleGenAI({ apiKey });
 
   const bubbleInstruction = request.includeBubbleText
     ? "EXTRACT 'bubbleText' (Max 2-4 words) directly from 'originalText'. DETERMINE 'emotionColor' based on the sentiment of the text."
@@ -157,9 +159,12 @@ export const generateScript = async (request: ScriptRequest): Promise<ScriptResp
 export const generateThumbnail = async (
   prompt: string, 
   aspectRatio: string = "9:16", 
-  mode: 'cover' | 'scene' = 'scene'
+  mode: 'cover' | 'scene' = 'scene',
+  apiKey: string
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!apiKey) throw new Error("API Key is missing.");
+  
+  const ai = new GoogleGenAI({ apiKey });
 
   try {
     let compositionRules = "";

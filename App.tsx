@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clapperboard, FileText, Trash2, Type, Folder, History, MessageSquare, CheckCircle2, Circle, X, User, Upload, Ratio } from 'lucide-react';
+import { Clapperboard, FileText, Trash2, Type, Folder, History, MessageSquare, CheckCircle2, Circle, X, User, Upload, Ratio, Key, Lock } from 'lucide-react';
 import { ScriptResponse, SavedProject } from './types';
 import { generateScript } from './services/geminiService';
 import { ScriptOutput } from './components/ScriptOutput';
@@ -8,6 +8,11 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ScriptResponse | null>(null);
   
+  // API Key State
+  const [apiKey, setApiKey] = useState('');
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [tempKey, setTempKey] = useState('');
+
   // Form State
   const [scriptContent, setScriptContent] = useState('');
   const [coverTitle, setCoverTitle] = useState('');
@@ -22,8 +27,16 @@ function App() {
   // Available Ratios
   const ratios = ["9:16", "16:9", "1:1", "4:3", "3:4"];
 
-  // 1. Load Data
+  // 1. Load Data & API Key
   useEffect(() => {
+    // Load Key
+    const storedKey = localStorage.getItem('gemini_api_key');
+    if (storedKey) {
+        setApiKey(storedKey);
+    } else {
+        setShowKeyModal(true);
+    }
+
     // Load Current Workspace
     try {
       const currentData = localStorage.getItem('viralFlowData_Visualizer');
@@ -71,6 +84,16 @@ function App() {
       console.error("History save error:", e);
     }
   }, [savedProjects]);
+
+  const saveApiKey = () => {
+    if (tempKey.trim().length > 10) {
+        localStorage.setItem('gemini_api_key', tempKey.trim());
+        setApiKey(tempKey.trim());
+        setShowKeyModal(false);
+    } else {
+        alert("Please enter a valid Gemini API Key.");
+    }
+  };
 
   const handleClearText = () => {
     setScriptContent('');
@@ -144,6 +167,10 @@ function App() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scriptContent) return;
+    if (!apiKey) {
+        setShowKeyModal(true);
+        return;
+    }
 
     setLoading(true);
     setResult(null);
@@ -155,11 +182,11 @@ function App() {
         includeBubbleText: includeBubble,
         characterImage,
         aspectRatio
-      }); 
+      }, apiKey); 
       setResult(data);
     } catch (error: any) {
       console.error("Generation Error:", error);
-      alert(error.message || "Failed to generate storyboard.");
+      alert(error.message || "Failed to generate storyboard. Check API Key.");
     } finally {
       setLoading(false);
     }
@@ -168,6 +195,46 @@ function App() {
   return (
     <div className="min-h-screen bg-[#0f0f11] text-zinc-100 selection:bg-purple-500/30 selection:text-purple-200 relative overflow-x-hidden">
       
+      {/* API Key Modal */}
+      {showKeyModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-md w-full shadow-2xl">
+                <div className="flex justify-center mb-6">
+                    <div className="p-4 bg-purple-500/10 rounded-full">
+                        <Key size={32} className="text-purple-400" />
+                    </div>
+                </div>
+                <h2 className="text-2xl font-bold text-center text-white mb-2">Enter Gemini API Key</h2>
+                <p className="text-zinc-400 text-center text-sm mb-6">
+                    To use Viral Flow, you need a Google Gemini API Key. Your key is stored locally in your browser and never sent to our servers.
+                </p>
+                <div className="space-y-4">
+                    <input 
+                        type="password" 
+                        value={tempKey}
+                        onChange={(e) => setTempKey(e.target.value)}
+                        placeholder="Paste your API Key here (AIza...)"
+                        className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                    />
+                    <button 
+                        onClick={saveApiKey}
+                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-colors"
+                    >
+                        Save & Continue
+                    </button>
+                    <a 
+                        href="https://aistudio.google.com/app/apikey" 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="block text-center text-xs text-zinc-500 hover:text-zinc-300 underline"
+                    >
+                        Get a free API Key here
+                    </a>
+                </div>
+            </div>
+        </div>
+      )}
+
       {/* Background Ambience */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-purple-900/20 rounded-full blur-[120px]" />
@@ -185,6 +252,14 @@ function App() {
             </span>
           </div>
           <div className="flex gap-2 md:gap-4 items-center">
+             <button 
+                onClick={() => setShowKeyModal(true)}
+                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                title="Update API Key"
+             >
+                <Lock size={18} />
+             </button>
+
              {(result || scriptContent.length > 0) && (
                 <button 
                     onClick={handleNewProject}
@@ -395,7 +470,7 @@ function App() {
 
           {result && (
             <div className="lg:col-span-8">
-                <ScriptOutput data={result} />
+                <ScriptOutput data={result} apiKey={apiKey} />
             </div>
           )}
 
