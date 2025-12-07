@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clapperboard, FileText, Trash2, Type, Folder, History, MessageSquare, CheckCircle2, Circle, X, User, Upload, Ratio, Key, Settings } from 'lucide-react';
+import { Clapperboard, FileText, Trash2, Type, Folder, History, MessageSquare, CheckCircle2, Circle, X, User, Upload, Ratio } from 'lucide-react';
 import { ScriptResponse, SavedProject } from './types';
 import { generateScript } from './services/geminiService';
 import { ScriptOutput } from './components/ScriptOutput';
@@ -7,9 +7,6 @@ import { ScriptOutput } from './components/ScriptOutput';
 function App() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ScriptResponse | null>(null);
-  
-  // API Key Selection State
-  const [hasKey, setHasKey] = useState(false);
   
   // Form State
   const [scriptContent, setScriptContent] = useState('');
@@ -25,10 +22,8 @@ function App() {
   // Available Ratios
   const ratios = ["9:16", "16:9", "1:1", "4:3", "3:4"];
 
-  // 1. Check for selected API Key and Load Data
+  // 1. Load Data
   useEffect(() => {
-    checkApiKey();
-
     // Load Current Workspace
     try {
       const currentData = localStorage.getItem('viralFlowData_Visualizer');
@@ -57,19 +52,6 @@ function App() {
       localStorage.removeItem('viralFlowHistory');
     }
   }, []);
-
-  const checkApiKey = async () => {
-    if ((window as any).aistudio && await (window as any).aistudio.hasSelectedApiKey()) {
-      setHasKey(true);
-    }
-  };
-
-  const handleSelectKey = async () => {
-    if ((window as any).aistudio) {
-        await (window as any).aistudio.openSelectKey();
-        setHasKey(true);
-    }
-  };
 
   // 2. Auto-Save Current Workspace
   useEffect(() => {
@@ -163,10 +145,6 @@ function App() {
     e.preventDefault();
     if (!scriptContent) return;
 
-    if (!hasKey) {
-        await handleSelectKey();
-    }
-
     setLoading(true);
     setResult(null);
 
@@ -181,36 +159,11 @@ function App() {
       setResult(data);
     } catch (error: any) {
       console.error("Generation Error:", error);
-      if (error.message && error.message.includes("Requested entity was not found")) {
-          setHasKey(false);
-          await handleSelectKey();
-      } else {
-          alert(error.message || "Failed to generate storyboard. Check API Key quota.");
-      }
+      alert(error.message || "Failed to generate storyboard.");
     } finally {
       setLoading(false);
     }
   };
-
-  if (!hasKey) {
-    return (
-        <div className="min-h-screen bg-[#0f0f11] flex flex-col items-center justify-center p-6 text-center">
-            <div className="w-16 h-16 bg-purple-600/20 rounded-full flex items-center justify-center mb-6">
-                <Clapperboard className="text-purple-500" size={32} />
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-4">Welcome to Viral Flow</h1>
-            <p className="text-zinc-400 mb-8 max-w-md">To generate cinematic storyboards with Gemini, please select a paid Google Cloud Project API Key.</p>
-            <button onClick={handleSelectKey} className="bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-8 rounded-xl transition-all flex items-center gap-2 shadow-lg shadow-purple-900/30">
-                <Key size={20} /> Select API Key
-            </button>
-            <div className="mt-8 text-zinc-600 text-xs">
-                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="hover:text-purple-400 underline">
-                    Billing Documentation
-                </a>
-            </div>
-        </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#0f0f11] text-zinc-100 selection:bg-purple-500/30 selection:text-purple-200 relative overflow-x-hidden">
@@ -232,9 +185,6 @@ function App() {
             </span>
           </div>
           <div className="flex gap-2 md:gap-4 items-center">
-             <button onClick={handleSelectKey} className="p-2 text-zinc-400 hover:text-white transition-colors" title="Change API Key">
-                <Settings size={20} />
-             </button>
              {(result || scriptContent.length > 0) && (
                 <button 
                     onClick={handleNewProject}
