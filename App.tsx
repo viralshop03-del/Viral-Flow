@@ -1,479 +1,272 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clapperboard, FileText, Trash2, Type, Folder, History, MessageSquare, CheckCircle2, Circle, X, User, Upload, Ratio, Key, Lock } from 'lucide-react';
+import { Clapperboard, FileText, Trash2, Type, Folder, History, MessageSquare, CheckCircle2, Circle, X, User, Upload, Ratio, Key, Loader2, Sparkles, XCircle, Aperture } from 'lucide-react';
 import { ScriptResponse, SavedProject } from './types';
 import { generateScript } from './services/geminiService';
 import { ScriptOutput } from './components/ScriptOutput';
 
+const resizeImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 512;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; }
+        } else {
+          if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return resolve(event.target?.result as string);
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = reject;
+    };
+    reader.onerror = reject;
+  });
+};
+
 function App() {
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [result, setResult] = useState<ScriptResponse | null>(null);
-  
-  // API Key State
-  const [apiKey, setApiKey] = useState('');
-  const [showKeyModal, setShowKeyModal] = useState(false);
-  const [tempKey, setTempKey] = useState('');
+  const [hasKey, setHasKey] = useState(false);
 
-  // Form State
   const [scriptContent, setScriptContent] = useState('');
-  const [coverTitle, setCoverTitle] = useState('');
-  const [includeBubble, setIncludeBubble] = useState(false);
+  const [includeBubble, setIncludeBubble] = useState(true);
+  const [visualCinematic, setVisualCinematic] = useState(true); // Default ON
   const [characterImage, setCharacterImage] = useState<string | null>(null);
   const [aspectRatio, setAspectRatio] = useState<string>('9:16');
 
-  // Project Library State
-  const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Available Ratios
-  const ratios = ["9:16", "16:9", "1:1", "4:3", "3:4"];
-
-  // 1. Load Data & API Key
   useEffect(() => {
-    // Load Key
-    const storedKey = localStorage.getItem('gemini_api_key');
-    if (storedKey) {
-        setApiKey(storedKey);
-    } else {
-        setShowKeyModal(true);
-    }
-
-    // Load Current Workspace
-    try {
-      const currentData = localStorage.getItem('viralFlowData_Visualizer');
-      if (currentData) {
-        const parsed = JSON.parse(currentData);
-        setScriptContent(parsed.scriptContent || '');
-        setCoverTitle(parsed.coverTitle || '');
-        setIncludeBubble(parsed.includeBubble ?? false);
-        setCharacterImage(parsed.characterImage || null);
-        setAspectRatio(parsed.aspectRatio || '9:16');
-        setResult(parsed.result || null);
-      }
-    } catch (e) { 
-      console.error("Workspace load error - clearing corrupt data", e); 
-      localStorage.removeItem('viralFlowData_Visualizer');
-    }
-
-    // Load History (Folder)
-    try {
-      const historyData = localStorage.getItem('viralFlowHistory');
-      if (historyData) {
-        setSavedProjects(JSON.parse(historyData));
-      }
-    } catch (e) { 
-      console.error("History load error", e); 
-      localStorage.removeItem('viralFlowHistory');
-    }
+    const checkKey = async () => {
+      if ((window as any).aistudio && await (window as any).aistudio.hasSelectedApiKey()) setHasKey(true);
+    };
+    checkKey();
   }, []);
 
-  // 2. Auto-Save Current Workspace
-  useEffect(() => {
-    try {
-      const dataToSave = { scriptContent, coverTitle, includeBubble, characterImage, aspectRatio, result };
-      localStorage.setItem('viralFlowData_Visualizer', JSON.stringify(dataToSave));
-    } catch (e) {
-      console.error("Auto-save error:", e);
-    }
-  }, [scriptContent, coverTitle, includeBubble, characterImage, aspectRatio, result]);
-
-  // 3. Auto-Save History
-  useEffect(() => {
-    try {
-      localStorage.setItem('viralFlowHistory', JSON.stringify(savedProjects));
-    } catch (e) {
-      console.error("History save error:", e);
-    }
-  }, [savedProjects]);
-
-  const saveApiKey = () => {
-    if (tempKey.trim().length > 10) {
-        localStorage.setItem('gemini_api_key', tempKey.trim());
-        setApiKey(tempKey.trim());
-        setShowKeyModal(false);
-    } else {
-        alert("Please enter a valid Gemini API Key.");
-    }
-  };
-
-  const handleClearText = () => {
-    setScriptContent('');
-  };
-
-  // Image Upload Handler
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setCharacterImage(base64String);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleRemoveImage = () => {
-    setCharacterImage(null);
-    if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-    }
-  };
-
-  const handleNewProject = () => {
-    if (scriptContent.trim() || result) {
-      const newProject: SavedProject = {
-        id: Date.now().toString(),
-        timestamp: Date.now(),
-        title: coverTitle || result?.title || "Untitled Project",
-        data: {
-            scriptContent,
-            coverTitle,
-            includeBubble,
-            characterImage,
-            aspectRatio,
-            result
-        }
-      };
-      setSavedProjects(prev => [newProject, ...prev]);
-    }
-
-    setResult(null);
-    setScriptContent('');
-    setCoverTitle('');
-    setIncludeBubble(false);
-    setCharacterImage(null);
-    setAspectRatio('9:16');
-  };
-
-  const loadProject = (project: SavedProject) => {
-    setScriptContent(project.data.scriptContent);
-    setCoverTitle(project.data.coverTitle);
-    setIncludeBubble(project.data.includeBubble);
-    setCharacterImage(project.data.characterImage);
-    setAspectRatio(project.data.aspectRatio || '9:16');
-    setResult(project.data.result);
-  };
-
-  const deleteProject = (id: string) => {
-    setSavedProjects(prev => prev.filter(p => p.id !== id));
-  };
-
-  const clearAllHistory = () => {
-    if(confirm("Delete all project history?")) {
-        setSavedProjects([]);
+  const handleSelectKey = async () => {
+    if ((window as any).aistudio) {
+      await (window as any).aistudio.openSelectKey();
+      setHasKey(true);
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!scriptContent) return;
-    if (!apiKey) {
-        setShowKeyModal(true);
-        return;
-    }
+    processScript('strict');
+  };
+
+  const processScript = async (mode: 'strict' | 'viral') => {
+    if (!scriptContent || loading) return;
 
     setLoading(true);
-    setResult(null);
+    
+    if (mode === 'strict') {
+      setLoadingMessage("Menganalisis Naskah Original...");
+      setTimeout(() => setLoadingMessage("Memecah Scene Sinematik..."), 2000);
+    } else {
+      setLoadingMessage("Meretas Algoritma TikTok...");
+      setTimeout(() => setLoadingMessage("Menulis Ulang Narasi FYP..."), 2000);
+      setTimeout(() => setLoadingMessage("Mengaplikasikan Filter Anti-Banned..."), 4000);
+    }
 
     try {
       const data = await generateScript({
         scriptContent,
-        coverTitle,
         includeBubbleText: includeBubble,
         characterImage,
-        aspectRatio
-      }, apiKey); 
+        aspectRatio,
+        optimizationMode: mode
+      });
       setResult(data);
     } catch (error: any) {
-      console.error("Generation Error:", error);
-      alert(error.message || "Failed to generate storyboard. Check API Key.");
+      console.error("Submit Error:", error);
+      const errorMsg = error?.message || (typeof error === 'string' ? error : "Terjadi kesalahan sistem.");
+      if (errorMsg.includes("Requested entity was not found")) {
+        setHasKey(false);
+      }
+      alert("Gagal memproses skrip. Silakan coba lagi.");
     } finally {
       setLoading(false);
     }
   };
 
+  const handleOptimize = () => {
+    processScript('viral');
+  };
+
+  if (!hasKey) {
+    return (
+      <div className="min-h-screen bg-[#0f0f11] flex flex-col items-center justify-center p-6 text-center">
+        <div className="p-4 bg-purple-500/10 rounded-3xl border border-purple-500/20 mb-6">
+          <Key className="text-purple-500" size={40} />
+        </div>
+        <h1 className="text-2xl font-bold text-white mb-2">Kunci Proyek Diperlukan</h1>
+        <p className="text-zinc-400 text-sm mb-6 max-w-xs leading-relaxed">
+          Untuk menghasilkan konten viral berkualitas tinggi, Anda harus memilih Kunci API Gemini dari proyek GCP yang berbayar.
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline block mt-2 font-bold">
+            Pelajari tentang penagihan
+          </a>
+        </p>
+        <button onClick={handleSelectKey} className="px-8 py-4 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-2xl transition-all shadow-xl shadow-purple-900/20">
+          Atur Kunci API
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#0f0f11] text-zinc-100 selection:bg-purple-500/30 selection:text-purple-200 relative overflow-x-hidden">
-      
-      {/* API Key Modal */}
-      {showKeyModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-8 max-w-md w-full shadow-2xl">
-                <div className="flex justify-center mb-6">
-                    <div className="p-4 bg-purple-500/10 rounded-full">
-                        <Key size={32} className="text-purple-400" />
-                    </div>
-                </div>
-                <h2 className="text-2xl font-bold text-center text-white mb-2">Enter Gemini API Key</h2>
-                <p className="text-zinc-400 text-center text-sm mb-6">
-                    To use Viral Flow, you need a Google Gemini API Key. Your key is stored locally in your browser and never sent to our servers.
-                </p>
-                <div className="space-y-4">
-                    <input 
-                        type="password" 
-                        value={tempKey}
-                        onChange={(e) => setTempKey(e.target.value)}
-                        placeholder="Paste your API Key here (AIza...)"
-                        className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                    />
-                    <button 
-                        onClick={saveApiKey}
-                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-colors"
-                    >
-                        Save & Continue
-                    </button>
-                    <a 
-                        href="https://aistudio.google.com/app/apikey" 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="block text-center text-xs text-zinc-500 hover:text-zinc-300 underline"
-                    >
-                        Get a free API Key here
-                    </a>
-                </div>
-            </div>
+    <div className="min-h-screen bg-[#0f0f11] text-zinc-100 relative selection:bg-purple-500/30">
+      {loading && (
+        <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-24 h-24 relative mb-6">
+            <Loader2 className="text-purple-500 animate-spin w-full h-full" />
+            <Sparkles className="absolute inset-0 m-auto text-purple-300 animate-pulse" size={32} />
+          </div>
+          <h2 className="text-2xl font-black mb-2 tracking-tight animate-pulse">{loadingMessage}</h2>
+          <p className="text-zinc-500 text-sm max-w-xs">AI sedang bekerja untuk konten Anda.</p>
         </div>
       )}
 
-      {/* Background Ambience */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-purple-900/20 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-blue-900/10 rounded-full blur-[120px]" />
-      </div>
-
-      <nav className="relative z-10 border-b border-zinc-800 bg-[#0f0f11]/80 backdrop-blur-md sticky top-0">
+      <nav className="border-b border-zinc-800 bg-black/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-gradient-to-br from-purple-500 to-indigo-600 p-2 rounded-lg">
-                <Clapperboard size={20} className="text-white" />
+          <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-br from-purple-500 to-indigo-600 p-2 rounded-xl">
+              <Clapperboard size={20} className="text-white" />
             </div>
-            <span className="text-lg md:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-zinc-400">
-              Viral Flow
-            </span>
+            <span className="font-black text-xl tracking-tighter uppercase italic">AlurViral</span>
           </div>
-          <div className="flex gap-2 md:gap-4 items-center">
-             <button 
-                onClick={() => setShowKeyModal(true)}
-                className="p-2 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
-                title="Update API Key"
-             >
-                <Lock size={18} />
-             </button>
-
-             {(result || scriptContent.length > 0) && (
-                <button 
-                    onClick={handleNewProject}
-                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-white bg-green-600 hover:bg-green-500 rounded-lg transition-colors shadow-lg shadow-green-900/20 whitespace-nowrap"
-                >
-                    <Folder size={14} /> <span className="hidden sm:inline">New Project</span>
-                </button>
-             )}
-          </div>
+          {result && (
+            <button onClick={() => setResult(null)} className="text-[10px] bg-zinc-800 hover:bg-zinc-700 px-4 py-2 rounded-xl font-black tracking-widest transition-colors">PROYEK BARU</button>
+          )}
         </div>
       </nav>
 
-      <main className="relative z-10 max-w-7xl mx-auto px-4 py-8 md:py-12">
-        
-        {!result && (
-            <div className="text-center mb-12 space-y-4 animate-fade-in-up">
-                <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white leading-tight">
-                    Turn Your Script into a <br/>
-                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-500">Visual Storyboard</span>
-                </h1>
-                <p className="text-zinc-400 text-base md:text-lg max-w-2xl mx-auto px-2">
-                    Paste your script and upload a character reference. We'll generate a cinematic shot list with consistent visuals.
-                </p>
-            </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+      <main className="max-w-7xl mx-auto px-4 py-12">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
           
-          <div className={`lg:col-span-4 ${result ? 'lg:sticky lg:top-24 h-fit' : 'lg:col-start-5 lg:col-span-4'}`}>
-            <div className="space-y-6">
+          <div className={`lg:col-span-4 ${result ? 'hidden lg:block' : 'lg:col-start-4 lg:col-span-6'}`}>
+            <form onSubmit={handleSubmit} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-8 space-y-8 shadow-2xl">
+              <div className="space-y-3">
+                <label className="text-xs font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                  <FileText size={14} /> Skrip Cerita
+                </label>
+                <textarea 
+                  value={scriptContent}
+                  onChange={(e) => setScriptContent(e.target.value)}
+                  placeholder="Tempel skrip mentah Anda di sini. Langkah 1: AI akan memvisualisasikan tanpa mengubah teks."
+                  className="w-full h-48 bg-black border border-zinc-800 rounded-2xl p-6 focus:ring-4 focus:ring-purple-500/20 focus:border-purple-500 outline-none resize-none transition-all text-sm leading-relaxed"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                    <Ratio size={14} /> Format Video
+                  </label>
+                  <select 
+                    value={aspectRatio}
+                    onChange={(e) => setAspectRatio(e.target.value)}
+                    className="w-full bg-black border border-zinc-800 rounded-xl p-3 text-sm font-bold focus:border-purple-500 outline-none"
+                  >
+                    <option value="9:16">9:16 (TIKTOK)</option>
+                    <option value="16:9">16:9 (YOUTUBE)</option>
+                    <option value="1:1">1:1 (FEED)</option>
+                  </select>
+                </div>
                 
-                <div className="bg-zinc-900/50 backdrop-blur-sm border border-zinc-800 rounded-2xl p-5 md:p-6 shadow-xl">
-                    <form onSubmit={handleSubmit} className="space-y-6">
-                        
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <FileText size={16} />
-                                    Paste Your Script
-                                </label>
-                                {scriptContent && (
-                                    <button
-                                        type="button"
-                                        onClick={handleClearText}
-                                        className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 hover:bg-red-500/10 px-2 py-1 rounded transition-colors"
-                                    >
-                                        <Trash2 size={12} /> Clear Text
-                                    </button>
-                                )}
-                            </div>
-                            <textarea
-                                value={scriptContent}
-                                onChange={(e) => setScriptContent(e.target.value)}
-                                placeholder="Paste your full script here..."
-                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all h-[160px] resize-none font-mono text-sm leading-relaxed"
-                                required
-                            />
-                        </div>
-
-                        {/* ROW: CHARACTER UPLOAD + ASPECT RATIO */}
-                        <div className="flex flex-col sm:flex-row gap-4">
-                            
-                            {/* LEFT: CHARACTER (65%) */}
-                            <div className="flex-[1.5] space-y-2">
-                                <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <User size={16} />
-                                    Character Ref
-                                </label>
-                                {!characterImage ? (
-                                    <div 
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="h-24 border-2 border-dashed border-zinc-800 hover:border-purple-500/50 bg-zinc-950/50 rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all group"
-                                    >
-                                        <Upload size={18} className="text-zinc-500 group-hover:text-purple-400 mb-1" />
-                                        <span className="text-[10px] text-zinc-500 font-medium">Upload Image</span>
-                                        <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
-                                    </div>
-                                ) : (
-                                    <div className="h-24 relative group rounded-xl overflow-hidden border border-zinc-700">
-                                        <img src={characterImage} alt="Ref" className="w-full h-full object-cover opacity-80" />
-                                        <button 
-                                            type="button"
-                                            onClick={handleRemoveImage}
-                                            className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity text-white"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* RIGHT: RATIO (35%) */}
-                            <div className="flex-1 space-y-2">
-                                <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                    <Ratio size={16} />
-                                    Aspect
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {ratios.map(r => (
-                                        <button
-                                            key={r}
-                                            type="button"
-                                            onClick={() => setAspectRatio(r)}
-                                            className={`h-11 rounded-lg text-[10px] font-bold border transition-all ${
-                                                aspectRatio === r 
-                                                ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/30' 
-                                                : 'bg-zinc-950 border-zinc-800 text-zinc-500 hover:border-zinc-700'
-                                            }`}
-                                        >
-                                            {r}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                        </div>
-                        
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
-                                <Type size={16} />
-                                Cover Title <span className="text-zinc-500 text-xs font-normal">(Optional)</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={coverTitle}
-                                onChange={(e) => setCoverTitle(e.target.value)}
-                                placeholder="e.g. RAHASIA FYP 2024"
-                                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all text-sm font-bold tracking-wide"
-                            />
-                        </div>
-
-                        <div className="p-3 bg-zinc-950 border border-zinc-800 rounded-xl">
-                            <button
-                                type="button"
-                                onClick={() => setIncludeBubble(!includeBubble)}
-                                className="w-full flex items-center justify-between group"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div className={`p-1.5 rounded-lg transition-colors ${includeBubble ? 'bg-yellow-500/20 text-yellow-400' : 'bg-zinc-800 text-zinc-600'}`}>
-                                        <MessageSquare size={14} />
-                                    </div>
-                                    <div className="text-left">
-                                        <div className={`text-xs font-bold transition-colors ${includeBubble ? 'text-zinc-200' : 'text-zinc-500'}`}>Manga Bubbles</div>
-                                    </div>
-                                </div>
-                                {includeBubble ? <CheckCircle2 size={16} className="text-yellow-500" /> : <Circle size={16} className="text-zinc-700" />}
-                            </button>
-                        </div>
-
-                        <button
-                            type="submit"
-                            disabled={loading || !scriptContent}
-                            className="w-full py-4 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-purple-900/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-3"
-                        >
-                            {loading ? (
-                                <>
-                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                    Visualizing...
-                                </>
-                            ) : (
-                                <>
-                                    <Clapperboard size={20} className="fill-white/20" />
-                                    Generate Storyboard
-                                </>
-                            )}
-                        </button>
-                    </form>
+                {/* FITUR BARU: Visual Cinematic Toggle */}
+                <div className="space-y-3">
+                   <label className="text-xs font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                    <Aperture size={14} /> Visual Style
+                  </label>
+                  <button 
+                    type="button"
+                    onClick={() => setVisualCinematic(!visualCinematic)}
+                    className={`w-full p-3 rounded-xl border text-[10px] font-black transition-all flex items-center justify-center gap-2 ${visualCinematic ? 'bg-blue-600/10 border-blue-500/50 text-blue-500 shadow-lg shadow-blue-900/10' : 'bg-black border-zinc-800 text-zinc-600'}`}
+                  >
+                    {visualCinematic ? <Sparkles size={14} /> : null}
+                    {visualCinematic ? 'CINEMATIC ON' : 'CINEMATIC OFF'}
+                  </button>
                 </div>
 
-                {savedProjects.length > 0 && (
-                    <div className="bg-zinc-900/50 backdrop-blur-sm border border-zinc-800 rounded-2xl p-5 md:p-6 shadow-xl animate-fade-in-up">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-zinc-400 font-bold text-sm flex items-center gap-2">
-                                <History size={16} /> Project History
-                            </h3>
-                            <button onClick={clearAllHistory} className="text-xs text-red-500 hover:text-red-400 transition-colors">
-                                Clear All
-                            </button>
-                        </div>
-                        <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                            {savedProjects.map((proj) => (
-                                <div key={proj.id} className="group bg-zinc-950 border border-zinc-800 hover:border-zinc-700 rounded-xl p-3 flex items-center justify-between transition-all">
-                                    <button 
-                                        onClick={() => loadProject(proj)}
-                                        className="flex-1 text-left"
-                                    >
-                                        <div className="font-bold text-sm text-zinc-300 group-hover:text-purple-400 transition-colors truncate max-w-[180px] md:max-w-[200px]">
-                                            {proj.title}
-                                        </div>
-                                        <div className="text-[10px] text-zinc-600 flex items-center gap-2">
-                                            {new Date(proj.timestamp).toLocaleString()}
-                                            <span className="bg-zinc-800 px-1 rounded text-zinc-400">{proj.data.aspectRatio || '9:16'}</span>
-                                        </div>
-                                    </button>
-                                    <button 
-                                        onClick={() => deleteProject(proj.id)}
-                                        className="p-2 text-zinc-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-            </div>
+                <div className="space-y-3 col-span-2">
+                  <label className="text-xs font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                    <MessageSquare size={14} /> Teks Manga
+                  </label>
+                  <button 
+                    type="button"
+                    onClick={() => setIncludeBubble(!includeBubble)}
+                    className={`w-full p-3 rounded-xl border text-[10px] font-black transition-all flex items-center justify-center gap-2 ${includeBubble ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-500 shadow-lg shadow-indigo-900/10' : 'bg-black border-zinc-800 text-zinc-600'}`}
+                  >
+                    {includeBubble ? <Sparkles size={14} /> : null}
+                    {includeBubble ? 'BUBBLE TEXT: AKTIF' : 'BUBBLE TEXT: NONAKTIF'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-xs font-black text-zinc-500 uppercase tracking-widest flex items-center gap-2">
+                  <User size={14} /> Ref. Karakter
+                </label>
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-28 border-2 border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center cursor-pointer hover:border-purple-500 transition-all bg-black/30 group overflow-hidden"
+                >
+                  {characterImage ? (
+                    <img src={characterImage} className="h-full w-full object-cover" />
+                  ) : (
+                    <>
+                      <Upload className="text-zinc-700 group-hover:text-purple-500 mb-2 transition-colors" size={24} />
+                      <span className="text-[10px] text-zinc-600 font-bold uppercase tracking-tighter">UNGGAH REFERENSI (OPSIONAL)</span>
+                    </>
+                  )}
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    hidden 
+                    accept="image/*" 
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      if (f) setCharacterImage(await resizeImage(f));
+                    }} 
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={loading}
+                className="w-full py-5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 border border-zinc-700"
+              >
+                <Clapperboard size={20} />
+                PROSES (TANPA UBAH TEKS)
+              </button>
+            </form>
           </div>
 
           {result && (
             <div className="lg:col-span-8">
-                <ScriptOutput data={result} apiKey={apiKey} />
+              <ScriptOutput 
+                data={result} 
+                characterImage={characterImage} 
+                onOptimize={handleOptimize}
+                initialVisualCinematic={visualCinematic}
+              />
             </div>
           )}
-
         </div>
       </main>
     </div>

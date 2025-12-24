@@ -1,224 +1,250 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { ScriptRequest, ScriptResponse } from "../types";
+import { ScriptRequest, ScriptResponse, ScriptScene } from "../types";
 
-// Helper function to clean markdown code blocks from JSON string
+// FITUR PENGUAT JARINGAN: Smart Retry Logic
+// Jika koneksi internet pengguna tidak stabil atau server sibuk, 
+// fungsi ini akan otomatis mencoba ulang permintaan hingga 3x.
+const withNetworkRetry = async <T>(
+  operation: () => Promise<T>, 
+  retries: number = 3, 
+  delay: number = 2000
+): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error: any) {
+    if (retries <= 0) throw error;
+    
+    // Deteksi error jaringan atau overload
+    console.warn(`Gangguan jaringan terdeteksi. Mencoba menghubungkan ulang... Sisa percobaan: ${retries}`);
+    
+    // Tunggu sejenak sebelum mencoba lagi (Backoff strategy)
+    await new Promise(resolve => setTimeout(resolve, delay));
+    
+    return withNetworkRetry(operation, retries - 1, delay * 1.5);
+  }
+};
+
 const cleanJsonString = (text: string): string => {
   if (!text) return "{}";
   let clean = text.trim();
-  
+  // PERBAIKAN: Menggunakan indexOf yang benar (bukan index4Of)
   const firstBrace = clean.indexOf('{');
   const lastBrace = clean.lastIndexOf('}');
-  
   if (firstBrace !== -1 && lastBrace !== -1) {
     clean = clean.substring(firstBrace, lastBrace + 1);
-  } else {
-    if (clean.startsWith("```json")) {
-        clean = clean.replace(/^```json/, "").replace(/```$/, "");
-    } else if (clean.startsWith("```")) {
-        clean = clean.replace(/^```/, "").replace(/```$/, "");
-    }
   }
-  
-  return clean.trim();
+  return clean;
 };
 
 const scriptSchema = {
   type: Type.OBJECT,
   properties: {
-    title: { type: Type.STRING, description: "The project title." },
+    title: { type: Type.STRING, description: "Judul proyek yang viral dan clickbait." },
     body: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
-          timestamp: { type: Type.STRING, description: "Estimated timestamp (e.g. 0:00-0:05)" },
-          originalText: { type: Type.STRING, description: "The EXACT segment of text from the source script corresponding to this scene. DO NOT change words." },
-          visual: { type: Type.STRING, description: "Visual direction for the scene." },
-          imagePrompt: { 
-            type: Type.STRING, 
-            description: "Detailed image prompt. VISUAL RULES: 1. START WITH CHARACTER DESCRIPTION. 2. DYNAMIC ACTION (No static standing). 3. SINGLE SCENE (No Split Screen)." 
-          },
-          bubbleText: {
-            type: Type.STRING,
-            description: "Extract 1-3 KEYWORDS ONLY from 'originalText' for the bubble."
-          },
-          emotionColor: {
-            type: Type.STRING,
-            description: "The specific color for the speech bubble based on emotion. Ex: 'Bright Red' (Anger), 'Electric Blue' (Shock), 'Dark Grey' (Sadness), 'Vibrant Yellow' (Happy), 'White' (Neutral)."
-          }
+          timestamp: { type: Type.STRING, description: "Waktu (detik) yang cepat dan padat." },
+          originalText: { type: Type.STRING, description: "Isi narasi." },
+          visual: { type: Type.STRING, description: "Deskripsi visual sinematik." },
+          imagePrompt: { type: Type.STRING },
+          bubbleText: { type: Type.STRING, description: "Kata kunci penarik perhatian (1-3 kata)." },
+          emotionColor: { type: Type.STRING },
+          mangaExpression: { type: Type.STRING },
+          transition: { type: Type.STRING }
         },
-        required: ["timestamp", "originalText", "visual", "imagePrompt"],
+        required: ["timestamp", "originalText", "visual", "imagePrompt", "bubbleText", "emotionColor", "mangaExpression", "transition"],
       },
     },
-    imagePrompt: { type: Type.STRING, description: "Main cover thumbnail prompt." },
+    imagePrompt: { type: Type.STRING },
+    analysis: {
+      type: Type.OBJECT,
+      properties: {
+        score: { type: Type.INTEGER, description: "Skor Viralitas (0-100)." },
+        hookStrength: { type: Type.STRING, description: "Analisis kekuatan hook." },
+        emotionalAppeal: { type: Type.STRING },
+        retentionPrediction: { type: Type.STRING },
+        improvementTips: { type: Type.ARRAY, items: { type: Type.STRING } }
+      },
+      required: ["score", "hookStrength", "emotionalAppeal", "retentionPrediction", "improvementTips"]
+    }
   },
-  required: ["title", "body", "imagePrompt"],
+  required: ["title", "body", "imagePrompt", "analysis"],
 };
 
-export const generateScript = async (request: ScriptRequest, apiKey: string): Promise<ScriptResponse> => {
-  if (!apiKey) throw new Error("API Key is missing. Please enter your Gemini API Key.");
-  
-  const ai = new GoogleGenAI({ apiKey });
+export const generateScript = async (request: ScriptRequest): Promise<ScriptResponse> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const mode = request.optimizationMode || 'strict';
 
-  const bubbleInstruction = request.includeBubbleText
-    ? "EXTRACT 'bubbleText' (Max 2-4 words) directly from 'originalText'. DETERMINE 'emotionColor' based on the sentiment of the text."
-    : "Return empty string for 'bubbleText'.";
-
-  const titleInstruction = request.coverTitle
-    ? `IMPORTANT: The user provided a specific Cover Title: "${request.coverTitle}". You MUST set the 'title' field to "${request.coverTitle}". The 'imagePrompt' for the cover MUST explicitly ask for the text "${request.coverTitle}" to be rendered in LARGE BOLD NEON WHITE FONT in the center of the image.`
-    : `Generate a punchy title based on the script. The 'imagePrompt' for the cover must include this title in LARGE BOLD NEON WHITE FONT centered.`;
-
-  // Construct Content Parts
   const contentParts: any[] = [];
-  
-  // 1. Text Prompt
   let promptText = `
-    You are an expert Visual Director and Storyboard Artist.
+    Anda adalah Pakar Algoritma TikTok & Script Doctor Kelas Dunia.
     
-    TASK:
-    1. Read the provided RAW SCRIPT below.
-    2. Break it down into logical visual scenes.
-    3. For each scene, fill the 'originalText' field with the EXACT text segment from the source.
-    4. Generate a 'visual' description and an 'imagePrompt' for each scene.
+    INPUT USER:
+    "${request.scriptContent}"
+
+    TUGAS UTAMA: Analisis skrip dan buat storyboard.
+
+    MODE OPERASI: ${mode === 'strict' ? 'PERTAHANKAN TEKS ASLI (STRICT)' : 'OPTIMASI VIRAL (REWRITE)'}
+
+    ${mode === 'strict' 
+      ? `
+        INSTRUKSI KHUSUS (STRICT MODE):
+        1. **JANGAN UBAH TEKS NARASI PENGGUNA**. Gunakan teks input user secara VERBATIM (kata per kata) di kolom 'originalText'.
+        2. Tugas Anda HANYA memecah teks tersebut menjadi scene (timestamp), menambahkan deskripsi visual, dan menganalisis skor.
+        3. Jika ada kata kasar/terlarang, JANGAN sensor di mode ini, tapi beri peringatan di bagian 'analysis.improvementTips'.
+        4. Berikan SKOR JUJUR. Jika skrip membosankan, beri skor rendah.
+      ` 
+      : `
+        INSTRUKSI KHUSUS (VIRAL MODE):
+        1. **TULIS ULANG (REWRITE)** skrip pengguna agar Potensi FYP mencapai 100%.
+        2. GANTI Hook yang lemah dengan Hook yang menohok.
+        3. PERBAIKI Pacing agar cepat dan padat.
+        4. **SAFETY GUARD**: Deteksi kata terlarang (Bunuh, Mati, Darah, dll) dan ganti dengan bahasa halus (Algospeak) agar aman dari banned.
+        5. **VISUAL UPGRADE**: Ubah total deskripsi 'visual' dan 'imagePrompt'. Buat visual menjadi lebih DRAMATIS, MAHAL, dan SINEMATIK. Jangan gunakan visual standar dari input asli jika membosankan.
+        6. Pastikan skrip akhir jauh lebih menarik dari input asli.
+      `
+    }
+
+    OUTPUT JSON STRUCTURE:
+    - 'originalText': Teks narasi (Asli atau Rewritten tergantung Mode).
+    - 'analysis.score': Skor Viralitas (0-100).
+    - 'visual': Deskripsi visual level film 8K.
     
-    SOURCE SCRIPT:
-    """
-    ${request.scriptContent}
-    """
+    Pastikan output valid JSON dan ikuti schema.
   `;
 
-  // 2. Handle Character Image (Consistency)
   if (request.characterImage) {
-    promptText += `
-    CRITICAL VISUAL INSTRUCTION:
-    I have provided an image of the MAIN CHARACTER.
-    1. First, ANALYZE this character's physical appearance (Gender, Age, Hair, Clothing, Distinctive features).
-    2. Then, for EVERY 'imagePrompt' you generate in the 'body', you MUST START with this specific description.
-    3. Example: "A young woman with blue neon hair and leather jacket [Action...]"
-    4. This is to ensure CHARACTER CONSISTENCY across all scenes.
-    `;
-    
-    // Clean base64 string
-    const base64Data = request.characterImage.split(',')[1];
-    
-    // Add Image Part
-    contentParts.push({
-      inlineData: {
-        mimeType: 'image/png', // Assumes PNG or compatible type from frontend
-        data: base64Data
-      }
-    });
+    const matches = request.characterImage.match(/^data:(.+);base64,(.+)$/);
+    if (matches) {
+      contentParts.push({ inlineData: { mimeType: matches[1], data: matches[2] } });
+      promptText += `\nIkuti penampilan karakter ini secara ketat dalam gaya sinematik realistis.`;
+    }
   }
 
-  promptText += `
-    VISUAL DIRECTIVES (STRICT):
-    - ASPECT RATIO TARGET: ${request.aspectRatio}. Frame the shot accordingly.
-    - DYNAMIC ACTION RULE: Characters MUST be active, showing emotion, or moving. STRICTLY FORBIDDEN: Static standing poses looking at camera.
-    - SINGLE LENS PROTOCOL: Describe ONE unified camera shot. Do not describe split screens, panels, or collages.
-    - FRAMING: Ensure subject is centered with negative space for text overlays.
-    
-    COVER RULES:
-    - ${titleInstruction}
-
-    FEATURE CONTROLS:
-    - ${bubbleInstruction}
-
-    Output format: JSON matching the schema.
-  `;
-
-  // Add the text prompt part
   contentParts.push({ text: promptText });
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-pro-preview", 
-      contents: { parts: contentParts },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: scriptSchema,
-        systemInstruction: "You are a Cinematic Visual Director. You maintain strict character consistency based on provided reference images.",
-      },
+    // Menggunakan withNetworkRetry untuk memperkuat koneksi saat request ke AI
+    const response = await withNetworkRetry(async () => {
+      return await ai.models.generateContent({
+        model: "gemini-3-pro-preview",
+        contents: { parts: contentParts },
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: scriptSchema as any,
+          temperature: mode === 'strict' ? 0.3 : 0.85, 
+        },
+      });
     });
 
-    const jsonText = response.text;
-    if (!jsonText) throw new Error("No response from AI");
+    const jsonText = response.text || "{}";
+    const parsed = JSON.parse(cleanJsonString(jsonText)) as ScriptResponse;
     
-    const cleanJson = cleanJsonString(jsonText);
-    const parsed = JSON.parse(cleanJson) as ScriptResponse;
+    if (parsed.body) {
+      parsed.body = parsed.body.map((scene: any) => ({
+        ...scene,
+        bubbleText: typeof scene.bubbleText === 'object' ? (scene.bubbleText.text || JSON.stringify(scene.bubbleText)) : String(scene.bubbleText || ""),
+        emotionColor: typeof scene.emotionColor === 'object' ? (scene.emotionColor.hex || scene.emotionColor.color || "#ffffff") : String(scene.emotionColor || "#ffffff"),
+      }));
+    }
     
-    // Attach the requested aspect ratio to the response so the UI knows how to render it
     parsed.aspectRatio = request.aspectRatio;
-    
     return parsed;
-  } catch (error) {
-    console.error("Error generating storyboard:", error);
+  } catch (error: any) {
+    console.error("Kesalahan Pembuatan Skrip:", error);
     throw error;
   }
 };
 
 export const generateThumbnail = async (
   prompt: string, 
-  aspectRatio: string = "9:16", 
+  aspectRatio: string = "1:1", 
   mode: 'cover' | 'scene' = 'scene',
-  apiKey: string
+  referenceImage?: string | null,
+  cinematicMode: boolean = true // Mode default ON
 ): Promise<string> => {
-  if (!apiKey) throw new Error("API Key is missing.");
-  
-  const ai = new GoogleGenAI({ apiKey });
-
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   try {
-    let compositionRules = "";
+    const parts: any[] = [];
 
-    if (mode === 'cover') {
-      // RULES FOR MAIN COVER (With Neon Title)
-      compositionRules = `
-      STRICT VISUAL COMPOSITION RULES (COVER):
-      1. SINGLE FULL-FRAME IMAGE ONLY. NO SPLIT SCREENS. NO COLLAGES.
-      2. ONE CAMERA LENS ONLY.
-      3. TEXT PLACEMENT: DEAD CENTER. 20% Margin from edges.
-      4. TEXT STYLE: LARGE BOLD NEON WHITE SANS-SERIF.
-      5. Action: Subject must be expressive.
-      `;
+    // RULES VISUAL CINEMATIC
+    const cinematicRules = cinematicMode 
+      ? "cinematic long exposure, heavy motion blur on moving objects, high-speed blur, dynamic streaks of light, fast-paced action style, motion lines."
+      : "clean, sharp focus, static image, no blur, crystal clear, high detailed still photography, freeze frame, perfect focus.";
+    
+    // BASE PROMPT - KUALITAS
+    let fullPrompt = `
+      [MASTERPIECE] [8K UHD] [RAW PHOTO]
+      Style: Cinematic, Ultra-Realistic, Hasselblad X2D 100C quality.
+      Visual Effect: ${cinematicRules}
+      
+      SCENE DESCRIPTION:
+      ${prompt}
+    `.trim();
+
+    // LOGIKA KHUSUS JIKA ADA GAMBAR REFERENSI
+    if (referenceImage) {
+      const matches = referenceImage.match(/^data:(.+);base64,(.+)$/);
+      if (matches) {
+        parts.push({ inlineData: { mimeType: matches[1], data: matches[2] } });
+        
+        // INSTRUKSI AGRESIF UNTUK MENGABAIKAN POSE
+        fullPrompt = `
+          *** INSTRUKSI PENTING: REFERENSI WAJAH SAJA ***
+          Gambar yang dilampirkan HANYA untuk referensi wajah/identitas karakter.
+          
+          DILARANG KERAS meniru pose, sudut pandang, atau background dari gambar referensi.
+          
+          WAJIB IKUTI AKSI DI TEKS:
+          Jika teks berkata "BERLARI", karakter HARUS berlari (jangan diam).
+          Jika teks berkata "MENANGIS", karakter HARUS menangis.
+          Jika teks berkata "BERTARUNG", karakter HARUS dalam pose tempur dinamis.
+          
+          Gunakan struktur wajah dari gambar, tapi tempelkan pada tubuh yang sedang melakukan aksi: "${prompt}".
+          Buat Pori-pori kulit terlihat nyata (Hyper-detailed skin texture).
+        `;
+      }
     } else {
-      // RULES FOR SCENES (Clean or Bubble only)
-      compositionRules = `
-      STRICT VISUAL COMPOSITION RULES (SCENE):
-      1. SINGLE FULL-FRAME IMAGE ONLY. NO SPLIT SCREENS. NO COLLAGES.
-      2. ONE CAMERA LENS ONLY. One unified scene.
-      3. ACTION: Subject must be expressive and dynamic. NO static poses.
-      4. DO NOT add any title text or captions unless explicitly asked in the prompt.
-      5. FOCUS: Cinematic lighting and character emotion.
+      // Jika tidak ada referensi, tambahkan detail umum
+      fullPrompt += `\nBuat terlihat SEPERTI HIDUP (LIFELIKE). Fokus Mata Tajam. Depth of Field sinematik.`;
+    }
+    
+    // Bubble Logic - UPDATED: LOCKED STYLE (LEDAKAN/PIJAR) & POSITION (TENGAH)
+    if (prompt.includes("Bubble") || prompt.includes("Gelembung") || prompt.includes("LEDAKAN PIJAR")) {
+      fullPrompt += `
+        . INSTRUKSI BUBBLE MANGA (WAJIB):
+        1. BENTUK: Gunakan bentuk "LEDAKAN PIJAR" (Jagged/Spiky Manga Shout Bubble) yang ekstrim dan tajam.
+        2. POSISI: Letakkan di TENGAH (CENTER), sangat dekat dengan kepala/mulut karakter. JANGAN di pojok/pinggir layar.
+        3. WARNA: Warna background bubble HARUS MENCOLOK (Vibrant) sesuai emosi adegan (Merah=Marah, Biru=Sedih, Kuning=Kaget).
+        4. ESTETIKA: Terlihat seperti halaman Manga Premium berwarna.
       `;
     }
 
-    const stablePrompt = `
-    ${prompt} 
-    
-    ${compositionRules}
-    
-    ASPECT RATIO: The output must be optimized for ${aspectRatio}.
-    `;
+    parts.push({ text: fullPrompt });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
-      contents: {
-        parts: [{ text: stablePrompt }],
-      },
-      config: {
-        imageConfig: {
-            aspectRatio: aspectRatio, // Dynamic ratio passed from UI
-        }
-      },
+    // Menggunakan withNetworkRetry untuk memperkuat koneksi saat generate gambar
+    const response = await withNetworkRetry(async () => {
+      return await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: { parts: parts },
+        config: { 
+          imageConfig: { 
+            aspectRatio: aspectRatio as any
+          } 
+        },
+      });
     });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
+    if (response.candidates?.[0]?.content?.parts) {
+      for (const part of response.candidates[0].content.parts) {
+        if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
       }
     }
-    throw new Error("No image data found in response");
-  } catch (error) {
-    console.error("Error generating thumbnail:", error);
+    throw new Error("Tidak ada data gambar dalam respons");
+  } catch (error: any) {
+    console.error("Kesalahan Gambar:", error);
     throw error;
   }
 };

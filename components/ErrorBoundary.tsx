@@ -1,4 +1,4 @@
-import React, { ErrorInfo, ReactNode } from "react";
+import React, { Component, ErrorInfo, ReactNode } from "react";
 import { RotateCcw, AlertTriangle } from "lucide-react";
 
 interface Props {
@@ -10,13 +10,21 @@ interface State {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<Props, State> {
+/**
+ * ErrorBoundary component to catch rendering errors in the component tree.
+ * Inherits from React.Component to provide lifecycle methods for error handling.
+ */
+export class ErrorBoundary extends Component<Props, State> {
+  public state: State = {
+    hasError: false,
+    error: null,
+  };
+
+  public props: Props;
+
   constructor(props: Props) {
     super(props);
-    this.state = {
-      hasError: false,
-      error: null,
-    };
+    this.props = props;
   }
 
   public static getDerivedStateFromError(error: Error): State {
@@ -49,6 +57,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
       );
     }
 
-    return this.props.children;
+    // Correctly return children from props, ensuring it doesn't return undefined
+    return this.props.children || null;
   }
 }

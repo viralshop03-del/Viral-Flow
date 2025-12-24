@@ -5,6 +5,7 @@ export interface ScriptRequest {
   includeBubbleText: boolean; // Toggle for comic bubbles
   characterImage?: string | null; // Base64 string of the reference character
   aspectRatio: string; // "9:16", "16:9", "1:1", etc.
+  optimizationMode: 'strict' | 'viral'; // 'strict' = keep original text, 'viral' = rewrite for FYP
 }
 
 export interface ScriptScene {
@@ -14,6 +15,16 @@ export interface ScriptScene {
   imagePrompt: string; // The prompt for the image generator
   bubbleText: string; // Extracted keyword from originalText
   emotionColor: string; // Color mood
+  mangaExpression?: string; // Facial and body action detail
+  transition: string; // New field for transition effects
+}
+
+export interface ViralAnalysis {
+  score: number; // 0-100
+  hookStrength: string;
+  emotionalAppeal: string;
+  retentionPrediction: string;
+  improvementTips: string[];
 }
 
 export interface ScriptResponse {
@@ -21,6 +32,7 @@ export interface ScriptResponse {
   body: ScriptScene[]; // The storyboard
   imagePrompt: string; // The prompt for the main cover
   aspectRatio: string; // Store the ratio used for this generation
+  analysis: ViralAnalysis; // Viral potential breakdown
 }
 
 export interface ThumbnailRequest {
